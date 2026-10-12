@@ -309,6 +309,8 @@ body{font-family:'Barlow',sans-serif;background:var(--dark);color:var(--cream);m
 .net-neg{color:var(--red)!important;}
 @media(max-width:720px){.trade-teams{grid-template-columns:1fr;}.trade-swap{transform:rotate(90deg);}.trade-cols{grid-template-columns:1fr;}.ts-grid{grid-template-columns:1fr;}}
 
+
+
 </style>
 </head>
 <body>
@@ -427,22 +429,23 @@ body{font-family:'Barlow',sans-serif;background:var(--dark);color:var(--cream);m
       <div class="rule-body">
         <p class="rule-text">Ligi son 4 sırada bitiren takımlar <b>eşit şansla (%25)</b> kura çekerek ilk 4 çaylak sırasını belirler. Kalan takımlar lig sonu sıralamasının tersine göre seçer.</p>
         <div class="rule-rank-table">
-          <div class="rrt-row head"><span>SIRA</span><span>MAAŞ</span></div>
-          <div class="rrt-row gold"><span>1. (Lottery)</span><b>$15</b></div>
-          <div class="rrt-row gold"><span>2. (Lottery)</span><b>$13</b></div>
-          <div class="rrt-row gold"><span>3. (Lottery)</span><b>$12</b></div>
-          <div class="rrt-row gold"><span>4. (Lottery)</span><b>$11</b></div>
-          <div class="rrt-row"><span>5.</span><b>$10</b></div>
-          <div class="rrt-row"><span>6.</span><b>$9</b></div>
-          <div class="rrt-row"><span>7.</span><b>$8</b></div>
-          <div class="rrt-row"><span>8.</span><b>$7</b></div>
-          <div class="rrt-row"><span>9.</span><b>$7</b></div>
-          <div class="rrt-row"><span>10.</span><b>$6</b></div>
-          <div class="rrt-row"><span>11.</span><b>$6</b></div>
-          <div class="rrt-row"><span>12.</span><b>$6</b></div>
-          <div class="rrt-row"><span>13.</span><b>$6</b></div>
-          <div class="rrt-row"><span>14.</span><b>$5</b></div>
+          <div class="rrt-row head"><span>SIRA</span><span>Y1 MAAŞI</span></div>
+          <div class="rrt-row gold"><span>1. (Lottery)</span><b>$18</b></div>
+          <div class="rrt-row gold"><span>2. (Lottery)</span><b>$16</b></div>
+          <div class="rrt-row gold"><span>3. (Lottery)</span><b>$14</b></div>
+          <div class="rrt-row gold"><span>4. (Lottery)</span><b>$13</b></div>
+          <div class="rrt-row"><span>5.</span><b>$12</b></div>
+          <div class="rrt-row"><span>6.</span><b>$11</b></div>
+          <div class="rrt-row"><span>7.</span><b>$10</b></div>
+          <div class="rrt-row"><span>8.</span><b>$9</b></div>
+          <div class="rrt-row"><span>9.</span><b>$8</b></div>
+          <div class="rrt-row"><span>10.</span><b>$8</b></div>
+          <div class="rrt-row"><span>11.</span><b>$7</b></div>
+          <div class="rrt-row"><span>12.</span><b>$7</b></div>
+          <div class="rrt-row"><span>13.</span><b>$7</b></div>
+          <div class="rrt-row"><span>14.</span><b>$6</b></div>
         </div>
+        <div style="margin-top:14px;text-align:center;"><a onclick="openScaleDetail()" style="color:var(--blue);cursor:pointer;text-decoration:underline;font-size:14px;">📊 4 Yıllık Tam Maaş Tablosunu Gör (Y1/Y2/Y3/Y4)</a></div>
       </div>
     </div>
 
@@ -584,7 +587,13 @@ let prevScreen = 'loginScreen';   // Kurallar'dan geri dönüş için
 const MAX_KEEPERS = 15;   // {id, name, username, is_commissioner}
 let roster = [];          // {id, name, salary, next, kept}
 
-function calcNext(s){ if(s<20) return s+2; return Math.round(s*1.1); }
+function calcNext(s, override){
+  // Eğer salary_2026_override doluysa (null/undefined/0 değilse) → doğrudan onu kullan (zam yok)
+  if(override !== null && override !== undefined && override > 0) return override;
+  // Normal keeper kuralı
+  if(s<20) return s+2;
+  return Math.round(s*1.1);
+}
 function ruleLabel(s){ return s<20?'+$2':'+10%'; }
 function ruleClass(s){ return s<20?'flat':'pct'; }
 
@@ -639,7 +648,7 @@ async function loadMyTeam(){
   document.getElementById('teamNameTop').textContent = '· ' + currentTeam.name;
   const { data, error } = await sb.from('players').select('*').eq('team_id', currentTeam.id).order('sort_order');
   if(error){ alert('Kadro yüklenemedi: '+error.message); return; }
-  roster = (data||[]).map(p=>({ id:p.id, name:p.name, salary:p.salary_2025, next:calcNext(p.salary_2025), kept:p.kept }));
+  roster = (data||[]).map(p=>({ id:p.id, name:p.name, salary:p.salary_2025, next:calcNext(p.salary_2025, p.salary_2026_override), kept:p.kept }));
   buildRoster();
   recompute();
   renderDraftMini();
@@ -650,27 +659,19 @@ async function renderDraftMini(){
   const el = document.getElementById('draftMini');
   if(!el) return;
   try {
-    const [stateRes, picksRes] = await Promise.all([
-      sb.from('lottery_state').select('status').eq('id',1).single(),
-      sb.from('lottery_picks').select('team_id,pick').eq('team_id', currentTeam.id)
-    ]);
-    const status = stateRes.data ? stateRes.data.status : 'closed';
-    const myPick = (picksRes.data && picksRes.data[0]) ? picksRes.data[0].pick : null;
+    const { data: myPicks, error } = await sb.from('draft_order').select('pick,salary_y1').eq('team_id', currentTeam.id).order('pick');
+    if(error) throw error;
 
-    let myDraftPick = null;
-    if(currentTeam.is_lottery){
-      if(status==='completed' && myPick) myDraftPick = myPick;
-    } else if(currentTeam.final_rank){
-      myDraftPick = 15 - currentTeam.final_rank;
-    }
-
-    let inner = `<div class="draft-mini-card"><div class="dm-head"><span class="dm-title">📋 Draft Sıram</span><a class="dm-link" onclick="openDraft()">Tümünü gör →</a></div>`;
-    if(myDraftPick){
-      inner += `<div class="dm-mypick"><div class="dm-num">${myDraftPick}</div><div class="dm-info"><div class="dm-label">Draft Sıran</div><div class="dm-val">${myDraftPick}. seçim · Çaylak maaşı $${ROOKIE_SCALE[myDraftPick]}</div></div></div>`;
-    } else if(currentTeam.is_lottery){
-      inner += `<div class="dm-pending">🎲 Lottery bekleniyor — sıran çekildiğinde burada görünecek</div>`;
+    let inner = `<div class="draft-mini-card"><div class="dm-head"><span class="dm-title">📋 Draft Pick'lerim</span><a class="dm-link" onclick="openDraft()">Tümünü gör →</a></div>`;
+    if(myPicks && myPicks.length > 0){
+      myPicks.forEach(p=>{
+        inner += `<div class="dm-mypick" style="margin-bottom:8px;"><div class="dm-num">${p.pick}</div><div class="dm-info"><div class="dm-label">${myPicks.length>1?'Pick':'Draft Sıran'}</div><div class="dm-val">${p.pick}. seçim · Y1 maaşı $${p.salary_y1}</div></div></div>`;
+      });
+      if(myPicks.length > 1){
+        inner += `<div style="font-size:12px;color:var(--gold);text-align:center;margin-top:8px;">✨ ${myPicks.length} pick'in var (takas sonrası)</div>`;
+      }
     } else {
-      inner += `<div class="dm-pending">Draft sırası hesaplanıyor...</div>`;
+      inner += `<div class="dm-pending">Bu sezon draft pick\'in yok (takas sonrası)</div>`;
     }
     inner += `</div>`;
     el.innerHTML = inner;
@@ -793,13 +794,13 @@ async function loadCommissioner(){
     const tps=(byTeam[t.id]||[]);
     const kept=tps.filter(p=>p.kept);
     if(kept.length>0) done++;
-    let load=0; kept.forEach(p=>load+=calcNext(p.salary_2025)); totalKeepers+=kept.length;
+    let load=0; kept.forEach(p=>load+=calcNext(p.salary_2025, p.salary_2026_override)); totalKeepers+=kept.length;
     const rem=BUDGET-load;
     let inner=`<div class="comm-card"><div class="comm-card-head"><div><div class="cname">${t.name}</div><div class="crank">Sıra ${t.final_rank||'-'}${t.is_lottery?' · Lottery':''}</div></div><span class="comm-status ${kept.length>0?'done':'pending'}">${kept.length>0?'Seçti':'Bekliyor'}</span></div>`;
     inner+=`<div class="comm-budget"><span>Keeper yükü: <b class="cb-val" style="color:var(--blue)">$${load}</b></span><span>Kalan: <b class="cb-val" style="color:${rem<0?'var(--red)':'var(--green)'}">$${rem}</b></span></div>`;
     if(kept.length>0){
       inner+='<div class="comm-keepers">';
-      kept.forEach(p=>{ inner+=`<div class="comm-keeper-item"><span class="kn">${p.name}</span><span class="ks">$${p.salary_2025}→$${calcNext(p.salary_2025)}</span></div>`; });
+      kept.forEach(p=>{ inner+=`<div class="comm-keeper-item"><span class="kn">${p.name}</span><span class="ks">$${p.salary_2025}→$${calcNext(p.salary_2025, p.salary_2026_override)}</span></div>`; });
       inner+='</div>';
     } else {
       inner+='<div class="comm-none">Henüz keeper seçilmedi</div>';
@@ -816,7 +817,7 @@ async function loadCommissioner(){
 
 
 // ============ LOTTERY + DRAFT ============
-const ROOKIE_SCALE = [0, 15, 13, 12, 11, 10, 9, 8, 7, 7, 6, 6, 6, 6, 5];  // index = pick number
+const ROOKIE_SCALE = [0, 18, 16, 14, 13, 12, 11, 10, 9, 8, 8, 7, 7, 7, 6];  // Y1 maaşları — 4 yıllık detay draft_order tablosunda
 const LOTTERY_DURATION_MS = 3500;
 
 // ----- ENTRY POINTS -----
@@ -1058,89 +1059,60 @@ async function drawMyBall(pickId, pickNumber){
   setTimeout(()=>renderLottery(), 2500);
 }
 
-// ----- DRAFT SIRASI -----
+// ----- DRAFT SIRASI (draft_order tablosundan) -----
 async function renderDraft(){
   const c = document.getElementById('draftContent');
   c.innerHTML = '<div class="lot-status-card"><div class="icon">⏳</div><h2>Yükleniyor...</h2></div>';
 
   try {
-    const [stateRes, teamsRes, picksRes] = await Promise.all([
-      sb.from('lottery_state').select('*').eq('id',1).single(),
-      sb.from('teams').select('*').eq('is_commissioner',false).order('final_rank'),
-      sb.from('lottery_picks').select('team_id,pick,revealed')
-    ]);
-    if(stateRes.error) throw stateRes.error;
+    const { data: order, error } = await sb.from('draft_order').select('*,teams(id,name,final_rank,is_lottery)').order('pick');
+    if(error) throw error;
 
-    const state = stateRes.data;
-    const teams = teamsRes.data || [];
-    const picks = picksRes.data || [];
-    const lotteryDone = state.status === 'completed';
-
-    // Draft sırası hesabı:
-    // 1-4 = lottery sonucu (eğer tamamlandıysa)
-    // 5-14 = ters sıralama (lig 10. → 5. sıra, lig 1. → 14. sıra)
-    const pickByTeam = {};
-    picks.forEach(p=>{ pickByTeam[p.team_id]=p.pick; });
-
-    const draftOrder = [];
-    teams.forEach(t=>{
-      let draftPick;
-      let isLottery = false;
-      if(t.is_lottery){
-        // Lottery takımı: pick'i lottery_picks'ten al (eğer çekildiyse)
-        if(lotteryDone && pickByTeam[t.id]){
-          draftPick = pickByTeam[t.id];
-          isLottery = true;
-        } else {
-          draftPick = null;  // henüz lottery çekilmedi
-        }
-      } else {
-        // Lottery olmayan: ters sıralama
-        // final_rank: 1 (şampiyon) → 14. draft pick (sonuncu seçer)
-        // final_rank: 10 → 5. draft pick (lottery sonrası ilk)
-        // Formül: draft_pick = (14 + 1) - final_rank + ... ?
-        // Lig 10 = 5. draft, lig 9 = 6., lig 8 = 7., ... lig 1 = 14.
-        // draft_pick = 15 - final_rank
-        draftPick = 15 - t.final_rank;
-      }
-      draftOrder.push({ team:t, pick:draftPick, isLottery });
-    });
-
-    // pick'e göre sırala (null'lar sona)
-    draftOrder.sort((a,b)=>{
-      if(a.pick==null) return 1;
-      if(b.pick==null) return -1;
-      return a.pick - b.pick;
-    });
+    if(!order || order.length === 0){
+      c.innerHTML = '<div class="lot-status-card"><div class="icon">📋</div><h2>Draft Sırası Henüz Belirlenmedi</h2><p>Lottery çekimi + takaslar sonrası sıra buraya işlenecek.</p></div>';
+      return;
+    }
 
     let html = `<div class="draft-summary">
       <div class="ds-title">Draft Sırası — 2026 Sezonu</div>
-      <div class="ds-date">${lotteryDone ? 'Lottery tamamlandı · Sıra kesinleşti' : 'Lottery henüz çekilmedi (ilk 4 sıra belirsiz)'}</div>
+      <div class="ds-date">Lottery + takaslar sonrası · Toplam ${order.length} pick · <a onclick="openScaleDetail()" style="color:var(--blue);cursor:pointer;text-decoration:underline;">📊 4 Yıllık Maaş Detayı</a></div>
     </div>`;
 
     html += `<div class="draft-table">`;
-    html += `<div class="draft-row head"><div>SIRA</div><div>TAKIM</div><div class="draft-rank">LİG</div><div style="text-align:right;">MAAŞ</div></div>`;
-    draftOrder.forEach(d=>{
+    html += `<div class="draft-row head"><div>SIRA</div><div>TAKIM</div><div class="draft-rank">ROOKİE</div><div style="text-align:right;">Y1</div></div>`;
+    order.forEach(d=>{
       const cls = [];
-      if(d.isLottery) cls.push('lottery');
-      if(d.team.id === currentTeam.id) cls.push('me');
-      const pickStr = d.pick==null ? '?' : d.pick;
-      const salary = d.pick==null ? '-' : '$'+ROOKIE_SCALE[d.pick];
-      const lotteryBadge = d.isLottery ? '<span class="draft-badge">Lottery</span>' : '';
+      if(d.teams && d.teams.is_lottery && d.pick <= 4) cls.push('lottery');
+      if(d.teams && d.teams.id === currentTeam.id) cls.push('me');
+      const rookieName = d.rookie_name || '<span style="color:var(--gray);font-style:italic;">—</span>';
       html += `<div class="draft-row ${cls.join(' ')}">
-        <div class="draft-pick">${pickStr}</div>
-        <div class="draft-name">${d.team.name}${lotteryBadge}</div>
-        <div class="draft-rank">${d.team.final_rank}.</div>
-        <div class="draft-salary">${salary}</div>
+        <div class="draft-pick">${d.pick}</div>
+        <div class="draft-name">${d.teams ? d.teams.name : '?'}</div>
+        <div class="draft-rank" style="text-align:left;font-size:13px;">${rookieName}</div>
+        <div class="draft-salary">$${d.salary_y1}</div>
       </div>`;
     });
     html += `</div>`;
-
     c.innerHTML = html;
   } catch(e){
     c.innerHTML = `<div class="lot-status-card"><div class="icon">❌</div><h2>Hata</h2><p>${e.message||e}</p></div>`;
   }
 }
+
+// 4 Yıllık maaş detay modal (basit alert yerine inline panel)
+async function openScaleDetail(){
+  try {
+    const { data: order, error } = await sb.from('draft_order').select('pick,salary_y1,salary_y2,salary_y3,salary_y4').order('pick');
+    if(error) throw error;
+    let msg = 'ÇAYLAK MAAŞ SKALASI (4 YIL)\n\nPick | Y1 | Y2 | Y3 | Y4\n';
+    msg += '─────────────────────────────\n';
+    order.forEach(d=>{
+      msg += ` ${String(d.pick).padStart(2,' ')}  | $${String(d.salary_y1).padStart(2,' ')} | $${String(d.salary_y2).padStart(2,' ')} | $${String(d.salary_y3).padStart(2,' ')} | $${String(d.salary_y4).padStart(2,' ')}\n`;
+    });
+    alert(msg);
+  } catch(e){ alert('Hata: '+(e.message||e)); }
+}
+
 
 
 
@@ -1194,7 +1166,7 @@ async function openTrade(){
     if(!currentTeam.is_commissioner){
       const { data: players, error: pe } = await sb.from('players').select('*').eq('team_id', currentTeam.id).order('sort_order');
       if(pe) throw pe;
-      myTradeRoster = (players||[]).map(p=>({ id:p.id, name:p.name, salary:p.salary_2025, next:calcNext(p.salary_2025) }));
+      myTradeRoster = (players||[]).map(p=>({ id:p.id, name:p.name, salary:p.salary_2025, next:calcNext(p.salary_2025, p.salary_2026_override) }));
       buildGiveList();
     }
     updateTradeSummary();
@@ -1225,7 +1197,7 @@ async function onOpponentChange(){
   try {
     const { data: players, error } = await sb.from('players').select('*').eq('team_id', oppId).order('sort_order');
     if(error) throw error;
-    oppTradeRoster = (players||[]).map(p=>({ id:p.id, name:p.name, salary:p.salary_2025, next:calcNext(p.salary_2025) }));
+    oppTradeRoster = (players||[]).map(p=>({ id:p.id, name:p.name, salary:p.salary_2025, next:calcNext(p.salary_2025, p.salary_2026_override) }));
     buildGetList();
     updateTradeSummary();
   } catch(e){
@@ -1291,6 +1263,9 @@ function setNet(id, val){
   else if(val<0){ el.textContent='-$'+Math.abs(val); el.className='net-neg'; }
   else { el.textContent='$0'; el.className=''; }
 }
+
+
+
 
 
 // Enter ile giriş
